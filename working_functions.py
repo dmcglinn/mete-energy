@@ -11,11 +11,9 @@ from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from mete import *
 import macroecotools
-import macroeco_distributions as mdis
 from fit_other_dist import *
 from math import exp
 from scipy.stats.mstats import mquantiles
-from scipy.stats import ks_2samp
 
 def import_raw_data(input_filename):
     data = np.genfromtxt(input_filename, dtype = "S15, S25, f8", skiprows = 1, 
@@ -135,7 +133,7 @@ def get_obs_pred_cdf(raw_data, dataset_name, data_dir = './data/', cutoff = 9):
             cdf_obs = get_obs_cdf(dbh2_scale)
             #save results to a csv file:
             results = np.zeros((len(cdf_obs), ), dtype = ('S10, f8, f8'))
-            results['f0'] = np.array([site] * len(cdf_obs))
+            results['f0'] = np.array([usites[i]] * len(cdf_obs))
             results['f1'] = cdf_obs
             results['f2'] = cdf_pred
             f1.writerows(results)
@@ -169,8 +167,8 @@ def get_obs_pred_dbh2(raw_data, dataset_name, data_dir = './data/', cutoff = 9):
             dbh2_pred = get_mete_pred_dbh2(dbh2_scale, S0, N0, E0)
             dbh2_obs = sorted(dbh2_scale)
             #save results to a csv file:
-            results = np.zeros((len(dbh2_obs), ), dtype = ('S10, f8, f8'))
-            results['f0'] = np.array([site] * len(dbh2_obs))
+            results = np.zeros((len(dhb2_obs), ), dtype = ('S10, f8, f8'))
+            results['f0'] = np.array([usites[i]] * len(dbh2_obs))
             results['f1'] = dbh2_obs
             results['f2'] = dbh2_pred
             f1.writerows(results)
@@ -276,61 +274,7 @@ def get_obs_pred_intradist(raw_data, dataset_name, data_dir = './data/', cutoff 
             f2.writerows(results2)
     f1_write.close()
     f2_write.close()
-    
-def ks_test_sp(sp_dbh2, Nsim = 1000, p = 0.05):
-    """Kolmogorov-Smirnov test to evaluate if dbh2 of one species is significantly 
-    
-    different from an exponential distribution left truncated at 1.
-    MLE parameter is obtained from the original sample, Nsim samples are simulated
-    from a truncated exponential distribution with the MLE parameter, and the original
-    sample is compared to each simulated sample with the 2-sample KS test.
-    Keyword arguments:
-    dbh2_sp: a vector (array) of rescaled dbh2 value for one species.
-    Nsim: number of simulated samples
-    p: level of significance
-    
-    """
-    par_mle = 1 / (sum(sp_dbh2) / len(sp_dbh2) - 1)
-    count = 0
-    for i in range(Nsim):
-        sim_dbh2 = mdis.trunc_expon.rvs(par_mle, 1, size = len(sp_dbh2))
-        ks_test = ks_2samp(sp_dbh2, sim_dbh2)
-        if ks_test[1] <= p:
-            count += 1
-    return count / Nsim
 
-def ks_test(datasets, data_dir = './data/', Nsim = 1000, p = 0.05, cutoff = 9, n_cutoff = 4):
-    """Kolmogorov-Smirnov test for each species in each dataset."""
-    f_write = open(data_dir + 'ks_test_' + str(Nsim) + '_' + str(p) + '.csv', 'wb')
-    f = csv.writer(f_write)
-    
-    for dataset in datasets:
-        raw_data = import_raw_data(dataset + '.csv')
-        usites = np.sort(list(set(raw_data['site'])))
-        for site in usites:
-            subdat = raw_data[raw_data['site'] == site]
-            dbh_raw = subdat[subdat.dtype.names[2]]
-            dbh_scale = np.array(dbh_raw / min(dbh_raw))
-            dbh2_scale = dbh_scale ** 2
-            S_list = set(subdat[subdat.dtype.names[1]])
-            S0 = len(S_list)
-            if S0 > cutoff: 
-                sp_list = []
-                sp_p_list = []
-                for sp in S_list:
-                    sp_dbh2 = dbh2_scale[subdat['sp'] == sp]
-                    if len(sp_dbh2) >= n_cutoff:
-                        sp_list.append(sp)
-                        sp_p_list.append(ks_test_sp(sp_dbh2, Nsim, p))
-            # Save to output
-            results = np.zeros((len(sp_list), ), dtype = ('S10, S10, S10, f8'))
-            results['f0'] = np.array([dataset] * len(sp_list))
-            results['f1'] = np.array([site] * len(sp_list))
-            results['f2'] = np.array(sp_list)
-            results['f3'] = np.array(sp_p_list)
-            f.writerows(results)
-    f_write.close()
-    
 def species_rand_test(datasets, data_dir = './data/', cutoff = 9, n_cutoff = 4, Niter = 200):
     """Randomize species identity within sites and compare the r-square obtained 
     
@@ -501,7 +445,7 @@ def plot_rand_test(data_dir = './data/'):
     ax_lambda.set_xlabel('Plots', fontsize = 8)
     ax_lambda.set_ylabel('MSE of iISD parameter', fontsize = 8)
 
-    plt.subplots_adjust(hspace = 0.25, left = 0.25, right = 0.9, top = 0.95, bottom = 0.05)
+    plt.subplots_adjust(hspace = 0.3, left = 0.1, right = 0.95)
     plt.savefig('rand_test.pdf', dpi = 400)
 
 def get_obs_pred_from_file(datasets, data_dir, filename):
@@ -531,13 +475,14 @@ def plot_obs_pred(obs, pred, radius, loglog, ax = None):
                  xy = (0.72, 0.05), xycoords = 'axes fraction', fontsize = 7)
     return ax
 
-def plot_obs_pred_sad(datasets, data_dir = "./data/", radius = 2):
+def plot_obs_pred_sad(datasets, data_dir = "./data/", dest_dir = "./", 
+                      radius = 2):
     """Plot the observed vs predicted abundance for each species for multiple datasets."""
     rad_obs, rad_pred = get_obs_pred_from_file(datasets, data_dir, '_obs_pred_rad.csv')
     fig = plot_obs_pred(rad_obs, rad_pred, radius, 1)
     fig.set_xlabel('Predicted abundance', labelpad = 4, size = 8)
     fig.set_ylabel('Observed abundance', labelpad = 4, size = 8)
-    plt.savefig('obs_pred_sad.png', dpi = 400)
+    plt.savefig(dest_dir + 'obs_pred_sad.png', dpi = 800)
 
 def plot_obs_pred_dbh2(datasets, data_dir = "./data/", radius = 2):
     """Plot the observed vs predicted dbh2 for each individual for multiple datasets."""
